@@ -9,6 +9,6 @@ How wonderful would it be, in a video call, to convey your meaning to the recipi
 
 • Optimizing the algorithm and minimizing the size of the model, to enable real time tracking. 
 
-• Future aspect of this project would be to convert this writing into text and use it to send messages.
+• Future aspect of this project would be to convert this writing into text and use it to send messages
 
 
