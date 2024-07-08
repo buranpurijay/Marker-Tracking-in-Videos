@@ -1,0 +1,150 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudCatcher Onboarding Template.
+Parameters:
+  RoleName:
+    Type: String
+    Default: CloudCatcherTrustRole
+    Description: The name of the IAM role to be created.
+  ClientS3BucketName:
+    Type: String
+    Default: cnt-cloud-bucket
+    Description: The name of the Cost and Usage Report (CUR) S3 bucket name to get
+      Cost details. Use lowercase letters, numbers, periods (.), hyphens (-),
+      and underscores (_).
+  DestAccountId:
+    Type: String
+    Default: 829807204216
+    Description: The AWS account ID of the destination account for S3 cross-account
+      replication.
+  DestBucketArn:
+    Type: String
+    Default: arn:aws:s3:::cloudcatcher-cloudtrail-bucket
+    Description: The ARN of the destination S3 bucket for cross-account replication.
+  IAMRoleName:
+    Type: String
+    Default: cloudcatcher-replication-role
+    Description: 'The name of the IAM role for S3 cross-account replication. '
+  SourceAccountId:
+    Type: String
+    Default: 557710868028
+    Description: 'The AWS account ID of the source account for S3 cross-account
+      replication. '
+  PolicyName:
+    Type: String
+    Default: CloudCatcher-Event-Insight-Replication-Policy
+    Description: 'The name of the IAM policy for S3 cross-account replication. '
+  CloudTrailName:
+    Type: String
+    Default: management-trail
+    Description: 'The name of the CloudTrail trail. '
+Resources:
+  CloudCatcherTrustRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::829807204216:root
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref ClientS3BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      ReplicationConfiguration:
+        Role: !GetAtt ReplicationRole.Arn
+        Rules:
+          - Status: Enabled
+            Prefix: ''
+            Destination:
+              Bucket: !Ref DestBucketArn
+              Account: !Ref DestAccountId
+              AccessControlTranslation:
+                Owner: Destination
+              StorageClass: STANDARD
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            ExpirationInDays: 7
+            NoncurrentVersionExpirationInDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      PublicAccessBlockConfiguration:
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ClientS3BucketName
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: AllowCloudTrailLogging
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !Sub arn:aws:s3:::${ClientS3BucketName}
+          - Sid: AllowCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub arn:aws:s3:::${ClientS3BucketName}/AWSLogs/${SourceAccountId}/*
+            Condition:
+              StringEquals:
+                s3:x-amz-acl: bucket-owner-full-control
+
+  ReplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref IAMRoleName
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Ref PolicyName
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action:
+                  - s3:ReplicateObject
+                  - s3:ReplicateDelete
+                  - s3:ReplicateTags
+                  - s3:GetObjectVersionTagging
+                  - s3:GetObjectVersionAcl
+                Effect: Allow
+                Resource: !Sub arn:aws:s3:::${ClientS3BucketName}/*
+
+  CloudCatcherEnableCloudTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: S3Bucket
+    Properties:
+      TrailName: !Ref CloudTrailName
+      S3BucketName: !Ref ClientS3BucketName
+      IsMultiRegionTrail: true
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+
+Outputs:
+  RoleArn:
+    Description: The ARN of CloudCatcher cross-account role
+    Value: !GetAtt CloudCatcherTrustRole.Arn
+  IAMRoleArn:
+    Description: ARN of the IAM Role for Replication
+    Value: !GetAtt ReplicationRole.Arn
+  S3BucketArn:
+    Description: ARN of the S3 Bucket
+    Value: !Sub arn:aws:s3:::${ClientS3BucketName}
